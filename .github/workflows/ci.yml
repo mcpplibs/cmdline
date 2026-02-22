@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+          package-cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Install Xlings
+        run: curl -fsSL https://d2learn.org/xlings-install.sh | bash
+
+      - name: Install GCC 15.1 with Xlings
+        run: |
+          export PATH=/home/xlings/.xlings_data/bin:$PATH
+          xlings install gcc@15.1 -y
+
+      - name: Build
+        run: |
+          export PATH=/home/xlings/.xlings_data/bin:$PATH
+          xmake -y
+
+      - name: Test
+        run: |
+          export PATH=/home/xlings/.xlings_data/bin:$PATH
+          xmake run cmdline_test
+
+      - name: Run examples (smoke)
+        run: |
+          export PATH=/home/xlings/.xlings_data/bin:$PATH
+          xmake run with_dispatch -- add python 3.12
+          xmake run with_dispatch -- remove foo

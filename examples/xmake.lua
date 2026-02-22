@@ -1,0 +1,20 @@
+add_rules("mode.debug", "mode.release")
+set_languages("c++23")
+
+target("basic")
+    set_kind("binary")
+    add_files("basic.cpp")
+    add_deps("cmdline")
+    set_policy("build.c++.modules", true)
+
+target("with_dispatch")
+    set_kind("binary")
+    add_files("with_dispatch.cpp")
+    add_deps("cmdline")
+    set_policy("build.c++.modules", true)
+
+target("parse_from_string")
+    set_kind("binary")
+    add_files("parse_from_string.cpp")
+    add_deps("cmdline")
+    set_policy("build.c++.modules", true)
