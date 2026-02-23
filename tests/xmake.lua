@@ -1,7 +1,7 @@
 add_rules("mode.debug", "mode.release")
 set_languages("c++23")
 
-add_requires("gtest", { configs = { main = true } })
+add_requires("gtest")
 
 target("cmdline_test")
     set_kind("binary")

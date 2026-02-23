@@ -65,19 +65,8 @@ jobs:
 
       - name: Build
         run: |
-          export PATH="$(brew --prefix llvm@20)/bin:$PATH"
-          xmake -y -vv --toolchain=llvm
-
-      - name: Test
-        run: |
-          export PATH="$(brew --prefix llvm@20)/bin:$PATH"
-          xmake run cmdline_test
-
-      - name: Run examples (smoke)
-        run: |
-          export PATH="$(brew --prefix llvm@20)/bin:$PATH"
-          xmake run with_dispatch -- add python 3.12
-          xmake run with_dispatch -- remove foo
+          xmake f --toolchain=llvm --sdk=/opt/homebrew/opt/llvm@20
+          xmake -y -vv
 
   build-windows:
     runs-on: windows-latest

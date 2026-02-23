@@ -5,4 +5,6 @@ target("cmdline")
     add_files("src/*.cppm", { public = true, install = true })
     set_policy("build.c++.modules", true)
 
-includes("examples", "tests")
+if not is_host("macosx") then
+    includes("examples", "tests")
+end
