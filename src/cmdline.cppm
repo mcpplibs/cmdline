@@ -146,13 +146,18 @@ public:
                 if (opt.short_) opt_str += std::format("-{}, ", opt.short_);
                 if (!opt.long_name.empty()) opt_str += "--" + opt.long_name;
                 if (!opt.value_name_.empty()) opt_str += " <" + opt.value_name_ + ">";
-                std::println("    {:20} {}", opt_str, opt.help_);
+                // Manual padding: GCC 15 C++23 modules crash with {:20} width specifiers
+                while (opt_str.size() < 20) opt_str += ' ';
+                std::println("    {} {}", opt_str, opt.help_);
             }
         }
         if (!subcommands_.empty()) {
             std::println("\nSUBCOMMANDS:");
-            for (const auto& sub : subcommands_)
-                std::println("    {:12} {}", sub.name_, sub.description_.empty() ? "" : sub.description_);
+            for (const auto& sub : subcommands_) {
+                std::string padded(sub.name_);
+                while (padded.size() < 12) padded += ' ';
+                std::println("    {} {}", padded, sub.description_.empty() ? "" : sub.description_);
+            }
         }
     }
 
