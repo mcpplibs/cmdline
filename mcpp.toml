@@ -1,0 +1,16 @@
+[package]
+name        = "mcpplibs.cmdline"
+version     = "0.0.2"
+description = "A simple command-line parsing library/framework for modern C++"
+license     = "Apache-2.0"
+authors     = ["mcpplibs"]
+repo        = "https://github.com/mcpplibs/cmdline"
+
+# Library target — exposes module `mcpplibs.cmdline` to dependents.
+# Sources default to src/**/*.{cppm,cpp,cc,c}; tests/ and examples/ are
+# discovered separately (`mcpp test` / standalone builds).
+[targets.cmdline]
+kind = "lib"
+
+[dev-dependencies]
+gtest = "1.15.2"

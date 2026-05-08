@@ -6,53 +6,72 @@ on:
   pull_request:
     branches: [main, master]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    name: build + test (linux x86_64, mcpp)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      MCPP_HOME: /home/runner/.mcpp
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup xmake
-        uses: xmake-io/github-action-setup-xmake@v1
+      # mcpp's sandbox (musl-gcc + ninja + binutils) is multi-hundred-MB;
+      # key on mcpp.toml so toolchain changes refresh the cache.
+      - name: Cache mcpp sandbox
+        uses: actions/cache@v4
         with:
-          xmake-version: latest
-          package-cache: true
+          path: ~/.mcpp
+          key: mcpp-sandbox-${{ runner.os }}-${{ hashFiles('mcpp.toml') }}
+          restore-keys: |
+            mcpp-sandbox-${{ runner.os }}-
 
-      - name: Install dependencies
+      - name: Cache xlings
+        uses: actions/cache@v4
+        with:
+          path: ~/.xlings
+          key: xlings-${{ runner.os }}
+          restore-keys: |
+            xlings-${{ runner.os }}-
+
+      - name: Bootstrap mcpp via xlings
+        env:
+          XLINGS_NON_INTERACTIVE: '1'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential
+          if [ ! -x "$HOME/.xlings/subos/default/bin/xlings" ]; then
+            curl -fsSL https://d2learn.org/xlings-install.sh | bash
+          fi
+          export PATH="$HOME/.xlings/subos/default/bin:$PATH"
+          xlings --version
+          xlings install mcpp -y
+          mcpp --version
+          echo "$HOME/.xlings/subos/default/bin" >> "$GITHUB_PATH"
 
-      - name: Install Xlings
-        run: curl -fsSL https://d2learn.org/xlings-install.sh | bash
-
-      - name: Install GCC 15.1 with Xlings
-        run: |
-          export PATH=/home/xlings/.xlings_data/bin:$PATH
-          xlings install gcc@15.1 -y
+      - name: Cache target/ (build artifacts + BMIs)
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: mcpp-target-${{ runner.os }}-${{ hashFiles('src/**', 'tests/**', 'mcpp.toml') }}
+          restore-keys: |
+            mcpp-target-${{ runner.os }}-
 
       - name: Build
-        run: |
-          export PATH=/home/xlings/.xlings_data/bin:$PATH
-          xmake -y -vv
+        run: mcpp build
 
       - name: Test
-        run: |
-          export PATH=/home/xlings/.xlings_data/bin:$PATH
-          xmake run cmdline_test
+        run: mcpp test
 
-      - name: Run examples (smoke)
-        run: |
-          export PATH=/home/xlings/.xlings_data/bin:$PATH
-          xmake run with_dispatch -- add python 3.12
-          xmake run with_dispatch -- remove foo
-
+  # mcpp is Linux-x86_64 first; macOS/Windows support is still WIP, so the
+  # cross-platform xmake build keeps coverage for those targets.
   build-macos:
+    name: build (macOS, xmake)
     runs-on: macos-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup xmake
         uses: xmake-io/github-action-setup-xmake@v1
@@ -69,10 +88,10 @@ jobs:
           xmake -y -vv
 
   build-windows:
+    name: build + test (Windows, xmake)
     runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup xmake
         uses: xmake-io/github-action-setup-xmake@v1
