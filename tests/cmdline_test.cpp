@@ -3,11 +3,6 @@
 import std;
 import mcpplibs.cmdline;
 
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
-
 using namespace mcpplibs::cmdline;
 
 // Build argv from program name + args for parse()

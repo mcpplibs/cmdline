@@ -76,10 +76,19 @@ auto r3 = app.parse_from("myapp remove x --yes");
 
 ## 构建
 
+**使用 xmake**
+
 ```shell
 xmake                       # 构建库
 xmake run basic             # 运行基础示例
 xmake -y run cmdline_test   # 运行测试（自动安装 gtest）
+```
+
+**使用 mcpp**
+
+```shell
+mcpp build                  # 构建库
+mcpp test                   # 运行 tests/ 下的测试
 ```
 
 ## 集成到构建工具
@@ -100,6 +109,17 @@ target("mytool")
     add_packages("cmdline")
     set_policy("build.c++.modules", true)
 ```
+
+### mcpp
+
+在项目的 `mcpp.toml` 中声明依赖：
+
+```toml
+[dependencies]
+"mcpplibs.cmdline" = "^0.0.2"
+```
+
+然后在源码中 `import mcpplibs.cmdline;` 即可使用。
 
 ## 相关链接
 
