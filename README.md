@@ -112,14 +112,31 @@ target("mytool")
 
 ### mcpp
 
-在项目的 `mcpp.toml` 中声明依赖：
+#### 添加依赖
+
+```bash
+mcpp add cmdline@0.0.2
+```
+
+或在 `mcpp.toml` 中手动添加：
 
 ```toml
 [dependencies]
-"mcpplibs.cmdline" = "^0.0.2"
+cmdline = "0.0.2"
 ```
 
-然后在源码中 `import mcpplibs.cmdline;` 即可使用。
+#### 构建
+
+```bash
+mcpp build
+```
+
+#### 代码示例
+
+```cpp
+import mcpplibs.cmdline;
+// ... 参见上方"快速开始"
+```
 
 ## 相关链接
 
