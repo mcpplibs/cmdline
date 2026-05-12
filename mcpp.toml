@@ -10,5 +10,5 @@ repo        = "https://github.com/mcpplibs/cmdline"
 [targets.cmdline]
 kind = "lib"
 
-[dev-dependencies.compat]
+[dev-dependencies]
 gtest = "1.15.2"
