@@ -1,0 +1,8 @@
+[package]
+name        = "completions"
+version     = "0.1.0"
+description = "A mimicked xlings using mcpplibs.cmdline with shell completions"
+license     = "Apache-2.0"
+
+[dependencies]
+cmdline = { path = "../../" }
