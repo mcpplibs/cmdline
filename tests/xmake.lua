@@ -5,7 +5,7 @@ add_requires("gtest", { configs = { main = true, gmock = false } })
 
 target("cmdline_test")
     set_kind("binary")
-    add_files("cmdline_test.cpp")
+    add_files("cmdline_test.cpp", "completions_test.cpp")
     add_deps("cmdline")
     add_packages("gtest")
     set_policy("build.c++.modules", true)
