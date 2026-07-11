@@ -41,7 +41,7 @@ export [[nodiscard]] std::string_view to_string(Shell shell) {
 export [[nodiscard]] bool shell_supported(Shell shell) {
     switch (shell) {
         case Shell::fish: return true;
-        case Shell::bash:
+        case Shell::bash: return true;
         case Shell::zsh:  return false;
     }
     return false;
