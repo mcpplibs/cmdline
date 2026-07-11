@@ -11,6 +11,8 @@
 | `OptionValue` | 单个选项取值（flag 计数 + values） |
 | `ParseError` | 解析错误（kind + message） |
 | `Argv` | `std::vector<std::string>` 的别名，用于 `parse_from` |
+| `Shell` | 目标 shell 枚举：`bash` / `fish` / `zsh` |
+| `Command` | 命令树快照，用于生成补全脚本 |
 
 解析返回 `ParseResult`，即 `std::expected<ParsedArgs, ParseError>`。`-h`/`--help`、`--version` 时，`ParseError::kind` 分别为 `help` / `version`，不携带 `message`，通过 `is_error()` 可区分真实错误。
 
@@ -39,6 +41,14 @@
 **Option**：`.short_name(c)` `.long_opt(s)` `.help(s)` `.takes_value(bool)` `.value_name(s)` `.multiple(bool)` `.global(bool)`
 
 ---
+
+## Shell
+
+| 函数 | 说明 |
+|------|------|
+| `shell_from_string(sv)` | 字符串 → `std::optional<Shell>`（如 `"fish"` → `Shell::fish`） |
+| `to_string(shell)` | `Shell` → `std::string_view` |
+| `shell_supported(shell)` | 该 shell 补全是否已实现（fish / bash / zsh） |
 
 ## ParseError
 
@@ -168,3 +178,66 @@ app.option(cmdline::Option("yes").long_opt("yes").global().help("Auto confirm"))
 app.arg(cmdline::Arg("input").required().help("Input file"));
 app.subcommand(cmdline::App("add").description("Add").arg(cmdline::Arg("x").required()).action([](const cmdline::ParsedArgs&) {}));
 ```
+
+---
+
+## Shell 补全
+
+### 生成流程
+
+1. 从 `App` 构建 `completions::Command` 树（`snapshot(app)` 或自动由 `generate_completions` 调用）
+2. `Command` 包含名称、描述、版本、`Arg`/`Option` 列表、子命令列表
+3. 选择目标 `Shell` 后调用 `generate_completions`，输出补全脚本文本
+
+### completions::Command
+
+| 成员 | 说明 |
+|------|------|
+| `name` | 命令名 |
+| `description` | 描述文本 |
+| `version` | 版本号 |
+| `args` / `options` / `subcommands` | `vector<Arg>` / `vector<Option>` / `vector<Command>` |
+| `.has_positionals()` | 是否有位置参数 |
+| `.has_subcommands()` | 是否有子命令 |
+
+> `snapshot()` 构建的 `Command` 会自动包含 `-h`/`--help` 和 `--version` 选项（与 `App::parse_impl` 行为一致）。
+
+### 生成函数
+
+| 重载 | 说明 |
+|------|------|
+| `generate_completions(cmd, shell)` | `Command` → `std::string` |
+| `generate_completions(cmd, shell, out)` | `Command` → `std::ostream&` |
+| `generate_completions(app, shell)` | `App` → `std::string`（内部调用 snapshot） |
+| `generate_completions(app, shell, out)` | `App` → `std::ostream&` |
+
+### App::completions
+
+```cpp
+// App 上的便捷方法，等价于 generate_completions(*this, shell)
+std::string completions(Shell shell) const;
+```
+
+### 示例：添加 completions 子命令
+
+```cpp
+app.subcommand("completions")
+    .description("Generate shell completions")
+    .option(Option("shell").takes_value().value_name("SHELL")
+        .help("Target shell [possible values: bash, fish, zsh]"))
+    .action([&app](const ParsedArgs& p) {
+        auto shell_opt = p.value("shell");
+        if (!shell_opt) {
+            std::println(std::cerr, "SHELL not provided.");
+            return;
+        }
+        auto shell = shell_from_string(*shell_opt);
+        if (!shell || !shell_supported(*shell)) {
+            std::println(std::cerr, "Unsupported shell: {}", *shell_opt);
+            return;
+        }
+        std::print("{}", app.completions(*shell));
+    });
+```
+
+> 完整可运行示例见 `examples/completions/`。
