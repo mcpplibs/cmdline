@@ -13,4 +13,6 @@ target("cmdline_test")
     -- 强制整体链入，否则报 LNK1561: entry point must be defined。
     if is_plat("windows") then
         add_ldflags("/wholearchive:gtest_main.lib", { force = true })
+    else
+        add_links("gtest_main")
     end
