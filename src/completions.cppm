@@ -42,7 +42,7 @@ export [[nodiscard]] bool shell_supported(Shell shell) {
     switch (shell) {
         case Shell::fish: return true;
         case Shell::bash: return true;
-        case Shell::zsh:  return false;
+        case Shell::zsh:  return true;
     }
     return false;
 }
