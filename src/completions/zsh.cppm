@@ -5,7 +5,22 @@ export module mcpplibs.cmdline:completions.zsh;
 import std;
 import :completions;
 
+namespace mcpplibs::cmdline::completions::zsh::detail {
+
+/// An entry in the flattened subcommand tree: the function-name path of the
+/// parent, the subcommand's display name, and the subcommand's own
+/// function-name path (using escaped component names for valid zsh identifiers).
+struct SubCmdEntry {
+    std::string parent_fn;
+    std::string name;
+    std::string fn;
+};
+
+} // namespace mcpplibs::cmdline::completions::zsh::detail
+
 namespace {
+
+using mcpplibs::cmdline::completions::zsh::detail::SubCmdEntry;
 
 /// Separator used to join subcommand names in the internal path representation
 /// (e.g. `"myapp__subcmd__install__subcmd__config"`).
@@ -100,15 +115,6 @@ constexpr std::string_view path_sep = "__subcmd__";
     }
     return node;
 }
-
-/// An entry in the flattened subcommand tree: the function-name path of the
-/// parent, the subcommand's display name, and the subcommand's own
-/// function-name path (using escaped component names for valid zsh identifiers).
-struct SubCmdEntry {
-    std::string parent_fn;
-    std::string name;
-    std::string fn;
-};
 
 void flatten_subcommands_impl(
     const mcpplibs::cmdline::completions::Command& cmd,
@@ -455,10 +461,12 @@ namespace mcpplibs::cmdline::completions::zsh {
 /// helper functions for subcommand listing.
 export void generate(const Command& cmd, std::ostream& out)
 {
+    using mcpplibs::cmdline::detail::Option;
+
     auto fn = escape_name(cmd.name);
 
     // Pre-collect root-level global options for re-offer under subcommands.
-    std::vector<detail::Option> root_globals;
+    std::vector<Option> root_globals;
     for (const auto& opt : cmd.options) {
         if (opt.global_) root_globals.emplace_back(opt);
     }
@@ -494,4 +502,4 @@ export void generate(const Command& cmd, std::ostream& out)
     out << "fi\n";
 }
 
-}; // namespace mcpplibs::cmdline::completions::zsh
+} // namespace mcpplibs::cmdline::completions::zsh

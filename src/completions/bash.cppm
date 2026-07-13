@@ -5,7 +5,34 @@ export module mcpplibs.cmdline:completions.bash;
 import std;
 import :completions;
 
+namespace mcpplibs::cmdline::completions::bash::detail {
+
+/// An entry in the flattened subcommand tree: the function-name path of the
+/// parent, the subcommand's display name, and the subcommand's own
+/// function-name path.
+struct SubCmdEntry {
+    std::string parent_fn;
+    std::string name;
+    std::string fn;
+};
+
+// A flattened entry for the subcommand dispatch tree: the escaped
+// function-name label used in the 'case "${cmd}" in' switch, the
+// path_sep-separated path relative to root needed to walk the Command tree,
+// and the nesting depth (used to compute COMP_CWORD) so the prologue can emit
+// the correct case branch.
+struct ScBranch {
+    std::string fn;
+    std::string path; // path_sep-separated relative to root
+    int depth;
+};
+
+} // namespace mcpplibs::cmdline::completions::bash::detail
+
 namespace {
+
+using mcpplibs::cmdline::completions::bash::detail::ScBranch;
+using mcpplibs::cmdline::completions::bash::detail::SubCmdEntry;
 
 /// Separator used to join subcommand names in the internal path representation
 /// (e.g. `"myapp__subcmd__install__subcmd__config"`).
@@ -55,15 +82,6 @@ constexpr std::string_view path_sep = "__subcmd__";
     }
     return node;
 }
-
-/// An entry in the flattened subcommand tree: the function-name path of the
-/// parent, the subcommand's display name, and the subcommand's own
-/// function-name path.
-struct SubCmdEntry {
-    std::string parent_fn;
-    std::string name;
-    std::string fn;
-};
 
 void flatten_subcommands_impl(
     const mcpplibs::cmdline::completions::Command& cmd,
@@ -243,11 +261,6 @@ void append_option_detail(
     // subcommand components (e.g. "install").
     const std::string root_prefix = std::string(fn) + std::string(path_sep);
 
-    struct ScBranch {
-        std::string fn;
-        std::string path; // path_sep-separated relative to root
-        int depth;
-    };
     std::vector<ScBranch> branches;
     for (const auto& e : entries) {
         std::string_view sc_path = e.fn;
@@ -318,6 +331,8 @@ namespace mcpplibs::cmdline::completions::bash {
 /// to detect which subcommand the user is currently typing.
 export void generate(const Command& cmd, std::ostream& out)
 {
+    using mcpplibs::cmdline::detail::Option;
+
     auto fn = escape_name(cmd.name);
     auto name_opts = all_options_for_path(cmd, "", {});
     auto name_opts_details = option_details_for_path(cmd, "", {});
@@ -325,7 +340,7 @@ export void generate(const Command& cmd, std::ostream& out)
 
     // Pre-collect root-level global options so subcommand helpers can re-offer
     // them (same pattern as fish.cppm's `gen_inner` global re-offer block).
-    std::vector<detail::Option> root_globals;
+    std::vector<Option> root_globals;
     for (const auto& opt : cmd.options) {
         if (opt.global_) root_globals.emplace_back(opt);
     }
@@ -387,4 +402,4 @@ export void generate(const Command& cmd, std::ostream& out)
     out << "fi\n";
 }
 
-}; // namespace mcpplibs::cmdline::completions::bash
+} // namespace mcpplibs::cmdline::completions::bash
