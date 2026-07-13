@@ -2,8 +2,13 @@ export module mcpplibs.cmdline;
 
 import std;
 
+export import :completions;
 export import :options;
 export import :parse;
+
+export import :completions.bash;
+export import :completions.fish;
+export import :completions.zsh;
 
 namespace mcpplibs::cmdline {
 
@@ -25,6 +30,7 @@ export class App {
     friend class SubcommandBuilder;
     friend class OptBuilder;
     friend class ArgBuilder;
+    friend completions::Command snapshot(const App&);
 public:
     explicit App(std::string_view name) : name_(name) {}
     App(App&&) noexcept = default;
@@ -160,6 +166,8 @@ public:
             }
         }
     }
+
+    [[nodiscard]] std::string completions(Shell shell) const;
 
 private:
     using global_keys_t = std::set<std::string, std::less<>>;
@@ -492,5 +500,55 @@ SubcommandBuilder AppItemBuilder<D>::subcommand(std::string_view name) { this->c
 
 inline OptBuilder SubcommandBuilder::option(std::string_view name) { return OptBuilder(&sub_, Option(name)); }
 inline SubcommandArgBuilder SubcommandBuilder::arg(std::string_view name) { return SubcommandArgBuilder(this, Arg(name)); }
+
+/// Rebuild the command tree for shell completions.
+completions::Command snapshot(const App& app) {
+    completions::Command cmd;
+    cmd.name = app.name_;
+    cmd.description = app.description_;
+    cmd.version = app.version_;
+
+    cmd.args = app.args_;
+    cmd.options = app.options_;
+
+    // Special cases in `App::parse_impl`:
+    //
+    // `-h/--help` is always available.
+    cmd.options.emplace_back(detail::Option("help").short_name('h').help("Print help").global());
+    // `--version` is available when app has a non-empty version.
+    if (!cmd.version.empty()) cmd.options.emplace_back(detail::Option("version").help("Print version").global());
+
+    for (const auto& sub : app.subcommands_) cmd.subcommands.emplace_back(snapshot(sub));
+
+    return cmd;
+}
+
+export void generate_completions(const completions::Command& cmd, Shell shell, std::ostream& out) {
+    switch (shell) {
+        case Shell::bash: completions::bash::generate(cmd, out); return;
+        case Shell::fish: completions::fish::generate(cmd, out); return;
+        case Shell::zsh:  completions::zsh::generate(cmd, out); return;
+    }
+}
+
+export std::string generate_completions(const completions::Command& cmd, Shell shell) {
+    std::ostringstream oss;
+    generate_completions(cmd, shell, oss);
+    return oss.str();
+}
+
+export void generate_completions(const App& app, Shell shell, std::ostream& out) {
+    auto cmd = snapshot(app);
+    generate_completions(cmd, shell, out);
+}
+
+export std::string generate_completions(const App& app, Shell shell) {
+    auto cmd = snapshot(app);
+    return generate_completions(cmd, shell);
+}
+
+std::string App::completions(Shell shell) const {
+    return generate_completions(*this, shell);
+}
 
 } // namespace mcpplibs::cmdline
