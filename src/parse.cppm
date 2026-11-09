@@ -62,6 +62,22 @@ export struct ParsedArgs {
             if (positional_names_[idx] == name) return positionals[idx];
         return std::nullopt;
     }
+    /// An option's (or a named positional's) value as a number: what an option
+    /// declared with value_type<Number>() takes, already checked by the parse.
+    /// Nothing when it was not given — or, for a value no declaration checked,
+    /// when it is not wholly a number of that type.
+    template <class Number>
+        requires(std::is_arithmetic_v<Number> && !std::is_same_v<Number, bool>)
+    [[nodiscard]] std::optional<Number> value_as(std::string_view name) const {
+        const auto text = value(name);
+        if (!text) return std::nullopt;
+        Number number{};
+        const char* first = text->data();
+        const char* last = first + text->size();
+        const auto [end, error] = std::from_chars(first, last, number);
+        if (error != std::errc{} || end != last) return std::nullopt;
+        return number;
+    }
     [[nodiscard]] std::string positional(std::size_t index) const {
         return index < positionals.size() ? positionals[index] : std::string{};
     }

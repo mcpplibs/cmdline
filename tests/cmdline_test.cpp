@@ -442,3 +442,48 @@ TEST(Parse, DoubleDashPositionalsOnly) {
     EXPECT_EQ(result->positional(1), "-x");
     EXPECT_EQ(result->positional(2), "--second");
 }
+
+// -----------------------------------------------------------------------------
+// value_type<T>: a number checked by the parse; value_as<T>: read back
+// -----------------------------------------------------------------------------
+TEST(ValueType, NumbersOfEachTypeReadBack) {
+    App app("prog");
+    (void)app.option(Option("rate").value_type<double>());
+    (void)app.option(Option("frames").short_name('f').value_type<int>());
+    (void)app.option(Option("seed").value_type<std::uint64_t>());
+    auto result = app.parse_from(Argv{"prog", "--rate=2.5", "-f", "60", "--seed", "18446744073709551615"});
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result->value_as<double>("rate"), 2.5);
+    EXPECT_EQ(result->value_as<int>("frames"), 60);
+    EXPECT_EQ(result->value_as<std::uint64_t>("seed"), 18446744073709551615ull);
+    EXPECT_FALSE(result->value_as<int>("missing").has_value());
+}
+
+TEST(ValueType, AValueThatIsNotOneIsAParseError) {
+    App app("prog");
+    (void)app.option(Option("size").value_type<int>());
+    (void)app.option(Option("level").short_name('l').value_type<unsigned>());
+    (void)app.option(Option("rate").value_type<double>());
+    auto size = app.parse_from(Argv{"prog", "--size", "12px"});
+    ASSERT_FALSE(size.has_value());
+    EXPECT_TRUE(size.error().is_error());
+    EXPECT_EQ(size.error().message, "option --size takes a whole number, not `12px`");
+    auto level = app.parse_from(Argv{"prog", "-l", "-1"});
+    ASSERT_FALSE(level.has_value());
+    EXPECT_EQ(level.error().message, "option -l takes a whole number, not negative, not `-1`");
+    auto rate = app.parse_from(Argv{"prog", "--rate", "fast"});
+    ASSERT_FALSE(rate.has_value());
+    EXPECT_EQ(rate.error().message, "option --rate takes a number, not `fast`");
+}
+
+TEST(ValueType, BuilderFormAndUncheckedValues) {
+    App app("prog");
+    (void)app.option("count").value_type<int>().help("how many");
+    (void)app.option("name").takes_value();
+    auto result = app.parse_from(Argv{"prog", "--count", "3", "--name", "12px"});
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result->value_as<int>("count"), 3);
+    // No declaration checked it: value_as answers nothing for what is not a number.
+    EXPECT_FALSE(result->value_as<int>("name").has_value());
+}
+

@@ -18,6 +18,8 @@
 
 - **多种解析模式** — 支持 `argc/argv`、`cmdline::Argv`（即 `vector<string>`）或原始 `string_view`
 
+- **数值选项** — `value_type<T>()` 声明选项取 `T` 类型的数字，解析时用 `std::from_chars` 校验，不合法就是解析错误；`value_as<T>(name)` 读回
+
 ## 快速开始
 
 ```cpp
@@ -72,6 +74,17 @@ app.run(argc, argv);
 auto r1 = app.parse(argc, argv);
 auto r2 = app.parse_from(cmdline::Argv{"myapp", "add", "x", "1.0"});
 auto r3 = app.parse_from("myapp remove x --yes");
+```
+
+### 数值选项
+
+```cpp
+auto app = cmdline::App("myapp")
+    .option(cmdline::Option("rate").value_type<double>().help("每秒多少片"))
+    .option(cmdline::Option("frames").short_name('f').value_type<int>());
+// myapp --rate fast  →  解析错误："option --rate takes a number, not `fast`"
+auto parsed = app.parse(argc, argv);
+const double rate = parsed->value_as<double>("rate").value_or(30.0);  // 缺省时为空
 ```
 
 ## 构建

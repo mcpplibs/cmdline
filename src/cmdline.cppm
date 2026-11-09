@@ -278,6 +278,8 @@ private:
                         val = std::string(tokens[++i]);
                     else
                         return std::unexpected(ParseError{.message = std::format("option --{} requires a value", key)});
+                    if (found.value_check_ && !found.value_check_(val))
+                        return std::unexpected(ParseError{.message = std::format("option --{} takes {}, not `{}`", key, found.value_kind_, val)});
                     apply_option(found, key_str, std::move(val), false);
                 } else {
                     apply_option(found, key_str, "", true);
@@ -294,6 +296,8 @@ private:
                 if (found.takes_value_) {
                     if (i + 1 >= tokens.size()) return std::unexpected(ParseError{.message = std::format("option -{} requires a value", short_char)});
                     std::string val(tokens[++i]);
+                    if (found.value_check_ && !found.value_check_(val))
+                        return std::unexpected(ParseError{.message = std::format("option -{} takes {}, not `{}`", short_char, found.value_kind_, val)});
                     apply_option(found, key_str, std::move(val), false);
                 } else {
                     apply_option(found, key_str, "", true);
@@ -391,6 +395,8 @@ public:
     OptBuilder& short_name(char c)             { (void)option_.short_name(c); return *this; }
     OptBuilder& help(std::string_view h)       { (void)option_.help(h); return *this; }
     OptBuilder& takes_value(bool v = true)     { (void)option_.takes_value(v); return *this; }
+    template <class Number>
+    OptBuilder& value_type()                   { (void)option_.template value_type<Number>(); return *this; }
     OptBuilder& value_name(std::string_view v) { (void)option_.value_name(v); return *this; }
     OptBuilder& multiple(bool m = true)        { (void)option_.multiple(m); return *this; }
     OptBuilder& global(bool g = true)          { (void)option_.global(g); return *this; }
