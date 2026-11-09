@@ -36,6 +36,9 @@ export struct Option {
     bool multiple_ = false;
     bool global_ = false;
     std::string value_name_;
+    // A value's check, declared with value_type<T>(): a value it refuses is a parse error.
+    bool (*value_check_)(std::string_view) = nullptr;
+    std::string value_kind_;  // what it takes, for that error: "a number", "an integer" …
 
     constexpr Option(std::string_view long_opt) : long_name(long_opt) {}
     constexpr Option(char short_char) : short_(short_char) {}
@@ -66,6 +69,26 @@ export struct Option {
     }
     [[nodiscard]] constexpr Option& value_name(std::string_view value_name) {
         value_name_ = value_name;
+        return *this;
+    }
+    /// The option takes a number of type `Number`, read with std::from_chars:
+    /// `--rate 2.5` with value_type<double>(), `--frames 60` with value_type<int>().
+    /// A value that is not wholly one (`12px`, `-1` for an unsigned, out of
+    /// range) is refused when the command line is parsed; afterwards
+    /// ParsedArgs::value_as<Number>() reads it.
+    template <class Number>
+        requires(std::is_arithmetic_v<Number> && !std::is_same_v<Number, bool>)
+    [[nodiscard]] Option& value_type() {
+        takes_value_ = true;
+        value_check_ = [](std::string_view text) {
+            Number number{};
+            const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), number);
+            return error == std::errc{} && end == text.data() + text.size();
+        };
+        value_kind_ = std::is_floating_point_v<Number> ? "a number"
+                      : std::is_unsigned_v<Number>    ? "a whole number, not negative"
+                                                      : "a whole number";
+        if (value_name_.empty()) value_name_ = std::is_floating_point_v<Number> ? "NUMBER" : "N";
         return *this;
     }
 
