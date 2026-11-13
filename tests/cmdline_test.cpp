@@ -381,6 +381,120 @@ TEST(Dispatch, SubcommandHandler) {
     EXPECT_EQ(add_called, 1);
 }
 
+// An action's status, and the run of a command line.
+TEST(Dispatch, ActionStatus) {
+    App app("p");
+    (void)app.action([](const ParsedArgs&) { return 7; });
+    auto result = app.parse_from(Argv{"p"});
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(app.run(*result), 7);
+}
+
+TEST(Dispatch, VoidActionIsZero) {
+    int called = 0;
+    App app("p");
+    (void)app.action([&called](const ParsedArgs&) { ++called; });
+    auto result = app.parse_from(Argv{"p"});
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(app.run(*result), 0);
+    EXPECT_EQ(called, 1);
+}
+
+static int status_of_add(const ParsedArgs& args) { return args.positional(0) == "x" ? 3 : 4; }
+
+TEST(Dispatch, FunctionAction) {
+    App app("cli");
+    app.subcommand("add").arg(Arg("t").required()).action(status_of_add);
+    auto result = app.parse_from(Argv{"cli", "add", "x"});
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(app.run(*result), 3);
+}
+
+TEST(Dispatch, NestedSubcommand) {
+    App remote("remote");
+    remote.subcommand("add")
+        .arg(Arg("name").required())
+        .action([](const ParsedArgs& args) { return args.positional(0) == "origin" ? 5 : 1; });
+    App app("git");
+    (void)app.subcommand(std::move(remote));
+    auto result = app.parse_from(Argv{"git", "remote", "add", "origin"});
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(app.run(*result), 5);
+}
+
+TEST(Dispatch, AncestorActionDispatches) {
+    App group("cache");
+    (void)group.subcommand(App("clean")).subcommand(App("list"));
+    (void)group.action([](const ParsedArgs& args) {
+        return args.subcommand_name() == "list" ? 6 : 1;
+    });
+    App app("tool");
+    (void)app.subcommand(std::move(group));
+    auto result = app.parse_from(Argv{"tool", "cache", "list"});
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(app.run(*result), 6);
+}
+
+TEST(Dispatch, GroupNamedWithoutSubcommand) {
+    App group("cache");
+    (void)group.subcommand(App("clean")).subcommand(App("list"));
+    App app("tool");
+    (void)app.subcommand(std::move(group));
+    auto result = app.parse_from(Argv{"tool", "cache"});
+    ASSERT_TRUE(result.has_value()) << result.error();
+    testing::internal::CaptureStderr();
+    const int status = app.run(*result);
+    const std::string err = testing::internal::GetCapturedStderr();
+    EXPECT_EQ(status, 2);
+    EXPECT_NE(err.find("tool cache: a subcommand is required: clean, list"), std::string::npos) << err;
+}
+
+TEST(Dispatch, NoActionIsZero) {
+    App app("p");
+    auto result = app.parse_from(Argv{"p"});
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(app.run(*result), 0);
+}
+
+TEST(Run, WordsStatus) {
+    App app("p");
+    (void)app.arg(Arg("x").required()).action([](const ParsedArgs& args) { return args.positional(0) == "go" ? 9 : 1; });
+    EXPECT_EQ(app.run(Argv{"p", "go"}), 9);
+}
+
+TEST(Run, ParseErrorToStandardError) {
+    App app("p");
+    (void)app.action([](const ParsedArgs&) { return 0; });
+    testing::internal::CaptureStdout();
+    testing::internal::CaptureStderr();
+    const int status = app.run(Argv{"p", "--nope"});
+    const std::string err = testing::internal::GetCapturedStderr();
+    const std::string out = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(status, 2);
+    EXPECT_TRUE(out.empty()) << out;
+    EXPECT_NE(err.find("p: unknown option: --nope"), std::string::npos) << err;
+    EXPECT_NE(err.find("p: see 'p --help'"), std::string::npos) << err;
+}
+
+TEST(Run, HelpAndVersionAreZero) {
+    App app("p");
+    (void)app.version("1.2.3").action([](const ParsedArgs&) { return 4; });
+    testing::internal::CaptureStdout();
+    const int help = app.run(Argv{"p", "--help"});
+    const int version = app.run(Argv{"p", "--version"});
+    const std::string out = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(help, 0);
+    EXPECT_EQ(version, 0);
+    EXPECT_NE(out.find("1.2.3"), std::string::npos);
+}
+
+TEST(Run, Argv) {
+    App app("p");
+    (void)app.action([](const ParsedArgs& args) { return static_cast<int>(args.positional_count()); });
+    auto [argc, argv] = make_argv("p", {"a", "b"});
+    EXPECT_EQ(app.run(argc, argv), 2);
+}
+
 // -----------------------------------------------------------------------------
 // Global option
 // -----------------------------------------------------------------------------
