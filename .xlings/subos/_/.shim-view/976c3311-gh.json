@@ -1,0 +1,43 @@
+{
+  "fingerprint": {
+    "/home/speak/.xlings/.xlings.json": "4014023:-4643116326602899284",
+    "/home/speak/.xlings/data/versions.json": "3859010:-4643116326531898249",
+    "/home/speak/.xlings/subos/speak-agent-private/.xlings.json": "273600:-4643140060670125089",
+    "/home/speak/workspace/tmp/eco/cmdline/.xlings.json": "51:-4643109118759633077",
+    "/home/speak/workspace/tmp/eco/cmdline/.xlings/.xlings.json": "absent"
+  },
+  "format": 1,
+  "program": "gh",
+  "vinfo": {
+    "gh": {
+      "filename": "gh",
+      "type": "program",
+      "versions": {
+        "2.92.0": {
+          "bindingGroup": {
+            "group": "gh",
+            "provider": "xim:github-gh",
+            "rootTarget": "gh",
+            "rootVersion": "2.92.0",
+            "version": "2.92.0"
+          },
+          "bindingMembers": {
+            "gh": "2.92.0"
+          },
+          "destinationName": "gh",
+          "kind": "program",
+          "path": "/home/speak/.xlings/data/xpkgs/xim-x-github-gh/2.92.0/bin",
+          "sourceName": "gh"
+        }
+      }
+    }
+  },
+  "workspace": {
+    "gh": {
+      "active": "2.92.0",
+      "installed": [
+        "2.92.0"
+      ]
+    }
+  }
+}

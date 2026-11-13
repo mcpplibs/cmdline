@@ -77,9 +77,18 @@ public:
         return *this;
     }
     [[nodiscard]] SubcommandBuilder subcommand(std::string_view name);
+    /// The command's action: `void(const ParsedArgs&)`, whose status is 0, or
+    /// `int(const ParsedArgs&)`, whose result is the status `run` returns.
     template <typename Fn>
+        requires std::invocable<Fn&, const ParsedArgs&>
     [[nodiscard]] App& action(Fn&& fn) {
-        action_ = std::function<void(const ParsedArgs&)>(std::forward<Fn>(fn));
+        using result_t = std::invoke_result_t<Fn&, const ParsedArgs&>;
+        static_assert(std::is_void_v<result_t> || std::is_convertible_v<result_t, int>,
+                      "an action returns void or a status convertible to int");
+        if constexpr (std::is_void_v<result_t>)
+            action_ = [f = std::forward<Fn>(fn)](const ParsedArgs& p) mutable { f(p); return 0; };
+        else
+            action_ = [f = std::forward<Fn>(fn)](const ParsedArgs& p) mutable { return static_cast<int>(f(p)); };
         return *this;
     }
 
@@ -87,24 +96,14 @@ public:
         std::vector<std::string_view> tokens;
         tokens.reserve(argc > 1 ? argc - 1 : 0);
         for (int i = 1; i < argc; ++i) tokens.emplace_back(argv[i]);
-        global_keys_t global_keys;
-        global_opts_t global_opts;
-        std::vector<Option> root_globals;
-        for (const auto& opt : options_)
-            if (opt.global_) { global_keys.insert(option_key(opt)); root_globals.push_back(opt); }
-        return parse_impl(name_, tokens, global_keys, global_opts, root_globals);
+        return parse_tokens(tokens);
     }
     [[nodiscard]] ParseResult parse_from(std::span<const std::string> args) const {
         if (args.empty()) return std::unexpected(ParseError{.message = "no program name"});
         std::vector<std::string_view> tokens;
         tokens.reserve(args.size() - 1);
         for (std::size_t i = 1; i < args.size(); ++i) tokens.emplace_back(args[i]);
-        global_keys_t global_keys;
-        global_opts_t global_opts;
-        std::vector<Option> root_globals;
-        for (const auto& opt : options_)
-            if (opt.global_) { global_keys.insert(option_key(opt)); root_globals.push_back(opt); }
-        return parse_impl(name_, tokens, global_keys, global_opts, root_globals);
+        return parse_tokens(tokens);
     }
     [[nodiscard]] ParseResult parse_from(std::string_view command_line) const {
         std::vector<std::string> tokens = split_command_line(command_line);
@@ -112,30 +111,44 @@ public:
         return parse_from(std::span<const std::string>(tokens));
     }
 
-    void run(const ParsedArgs& parsed) const {
-        if (parsed.has_subcommand()) {
-            for (const auto& sub : subcommands_) {
-                if (sub.name_ == parsed.subcommand_name()) {
-                    auto sub_ref = parsed.subcommand();
-                    if (sub_ref && sub.action_) sub.action_(sub_ref->get());
-                    return;
-                }
-            }
-        } else if (action_) {
-            action_(parsed);
+    /// Runs the action for a parse of this command and returns its status.
+    ///
+    /// The command the words named is the deepest matched subcommand, at any
+    /// depth. Its action runs with its own parse; a command without an action
+    /// leaves the run to its nearest ancestor that has one, which receives the
+    /// ancestor's parse (and dispatches on `subcommand_name()` itself). When no
+    /// command on the path has an action, a command with subcommands was named
+    /// without one: the run writes the subcommands to standard error and
+    /// returns 2. A command with neither returns 0.
+    int run(const ParsedArgs& parsed) const {
+        std::vector<std::pair<const App*, const ParsedArgs*>> path{{this, &parsed}};
+        while (path.back().second->has_subcommand()) {
+            const auto [app, args] = path.back();
+            const App* sub = app->find_subcommand(args->subcommand_name());
+            auto sub_args = args->subcommand();
+            if (!sub || !sub_args) break;
+            path.emplace_back(sub, &sub_args->get());
         }
+        for (auto it = path.rbegin(); it != path.rend(); ++it)
+            if (it->first->action_) return it->first->action_(*it->second);
+        const App& named = *path.back().first;
+        if (named.subcommands_.empty()) return 0;
+        std::string command(name_);
+        for (std::size_t i = 1; i < path.size(); ++i) command += " " + path[i].first->name_;
+        std::string names;
+        for (const auto& sub : named.subcommands_) names += (names.empty() ? "" : ", ") + sub.name_;
+        std::println(std::cerr, "{}: a subcommand is required: {}", command, names);
+        std::println(std::cerr, "{}: see '{} --help'", name_, command);
+        return 2;
     }
 
-    int run(int argc, char* argv[]) const {
-        auto result = parse(argc, argv);
-        if (!result) {
-            if (result.error().is_error())
-                std::println("Error: {}", result.error().message);
-            return result.error().is_error() ? 1 : 0;
-        }
-        run(*result);
-        return 0;
-    }
+    /// Parses `argv` and runs it. Help and the version are printed to standard
+    /// output and return 0; a parse error is written to standard error and
+    /// returns 2 (the status of a usage error); otherwise the action's status
+    /// is returned.
+    int run(int argc, char* argv[]) const { return finish_run(parse(argc, argv)); }
+    /// The same for the words of a command line, the program name first.
+    int run(std::span<const std::string> args) const { return finish_run(parse_from(args)); }
 
     void print_help(std::string_view program_name = "") const {
         std::string prog = program_name.empty() ? std::string(name_) : std::string(program_name);
@@ -173,6 +186,31 @@ private:
     using global_keys_t = std::set<std::string, std::less<>>;
     using global_opts_t = std::map<std::string, OptionValue, std::less<>>;
     using OptRef = std::optional<std::reference_wrapper<const Option>>;
+
+    [[nodiscard]] ParseResult parse_tokens(std::span<const std::string_view> tokens) const {
+        global_keys_t global_keys;
+        global_opts_t global_opts;
+        std::vector<Option> root_globals;
+        for (const auto& opt : options_)
+            if (opt.global_) { global_keys.insert(option_key(opt)); root_globals.push_back(opt); }
+        return parse_impl(name_, tokens, global_keys, global_opts, root_globals);
+    }
+
+    int finish_run(const ParseResult& result) const {
+        if (!result) {
+            if (!result.error().is_error()) return 0;
+            std::println(std::cerr, "{}: {}", name_, result.error().message);
+            std::println(std::cerr, "{}: see '{} --help'", name_, name_);
+            return 2;
+        }
+        return run(*result);
+    }
+
+    const App* find_subcommand(std::string_view name) const {
+        for (const auto& sub : subcommands_)
+            if (sub.name_ == name) return &sub;
+        return nullptr;
+    }
 
     static std::vector<std::string> split_command_line(std::string_view command_line) {
         std::vector<std::string> tokens;
@@ -342,7 +380,7 @@ private:
     std::vector<Arg> args_;
     std::vector<Option> options_;
     std::vector<App> subcommands_;
-    std::function<void(const ParsedArgs&)> action_;
+    std::function<int(const ParsedArgs&)> action_;
 };
 
 // CRTP base: shared transition methods and parent/commit management for OptBuilder & ArgBuilder.

@@ -1,0 +1,43 @@
+{
+  "fingerprint": {
+    "/home/speak/.xlings/.xlings.json": "4014023:-4643116326602899284",
+    "/home/speak/.xlings/data/versions.json": "3859010:-4643116326531898249",
+    "/home/speak/.xlings/subos/speak-agent-private/.xlings.json": "273600:-4643140060670125089",
+    "/home/speak/workspace/tmp/eco/cmdline/.xlings.json": "51:-4643109118759633077",
+    "/home/speak/workspace/tmp/eco/cmdline/.xlings/.xlings.json": "absent"
+  },
+  "format": 1,
+  "program": "python3",
+  "vinfo": {
+    "python3": {
+      "filename": "python3",
+      "type": "program",
+      "versions": {
+        "3.13.12": {
+          "bindingGroup": {
+            "group": "python3",
+            "provider": "xim:python",
+            "rootTarget": "python3",
+            "rootVersion": "3.13.12",
+            "version": "3.13.12"
+          },
+          "bindingMembers": {
+            "python3": "3.13.12"
+          },
+          "destinationName": "python3",
+          "kind": "program",
+          "path": "/home/speak/.xlings/data/xpkgs/xim-x-python/3.13.12/bin",
+          "sourceName": "python3"
+        }
+      }
+    }
+  },
+  "workspace": {
+    "python3": {
+      "active": "3.13.12",
+      "installed": [
+        "3.13.12"
+      ]
+    }
+  }
+}

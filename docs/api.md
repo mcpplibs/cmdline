@@ -26,10 +26,10 @@
 | `.arg(Arg)` `.arg("name")` | 添加位置参数（字符串即链式） |
 | `.option(Option)` `.option("name")` | 添加选项 |
 | `.subcommand(App)` `.subcommand("name")` | 添加子命令 |
-| `.action(fn)` | 根/子命令执行函数 `void(const ParsedArgs&)` |
+| `.action(fn)` | 根/子命令执行函数：`int(const ParsedArgs&)`（返回值即退出码）或 `void(const ParsedArgs&)`（退出码 0） |
 | `.parse(argc, argv)` `.parse_from(Argv)` `.parse_from(string_view)` | 解析，返回 `ParseResult` |
-| `.run(parsed)` | 根据解析结果执行对应 action |
-| `.run(argc, argv)` | 一键 parse + dispatch + 返回退出码（推荐主入口） |
+| `.run(parsed)` | 执行解析结果所命中的命令的 action，返回其退出码（规则见“分发规则”） |
+| `.run(argc, argv)` `.run(Argv)` | parse + dispatch，返回退出码（推荐主入口）：help/version 为 0，解析错误写入标准错误并返回 2 |
 | `.print_help(program_name)` | 打印帮助 |
 
 ---
@@ -117,10 +117,33 @@ int main(int argc, char* argv[]) {
 auto result = app.parse(argc, argv);
 if (!result) {
     if (!result.error().is_error()) return 0; // help / version
-    std::println("Error: {}", result.error().message);
-    return 1;
+    std::println(std::cerr, "myapp: {}", result.error().message);
+    return 2;
 }
 const cmdline::ParsedArgs& p = *result;
+```
+
+`run(argc, argv)` 与 `run(Argv)` 的错误处理与此相同：错误信息写入标准错误（`<name>: <message>` 及 `<name>: see '<name> --help'`），返回 2；标准输出只承载 help、version 与 action 自身的输出。
+
+### 分发规则与退出码
+
+`run(parsed)` 沿解析结果向下找到最深一层被命中的子命令（任意层级），按以下规则执行：
+
+1. 该命令有 action 时，以其自身的解析结果执行，返回值即退出码（`void` action 为 0）。
+2. 该命令无 action 时，由路径上最近的、有 action 的祖先命令执行；祖先收到的是它自己这一层的解析结果，可按 `subcommand_name()` 自行分发。
+3. 路径上均无 action 且该命令带有子命令（命令组被单独调用）时，向标准错误写出可选的子命令并返回 2。
+4. 其余情况返回 0。
+
+```cpp
+cmdline::App remote("remote");
+remote.subcommand("add")
+    .arg("name").required()
+    .action([](const cmdline::ParsedArgs& a) -> int {
+        return add_remote(a.positional(0)) ? 0 : 1;
+    });
+
+auto app = cmdline::App("git").subcommand(std::move(remote));
+return app.run(argc, argv); // git remote add origin → add 的退出码；git remote → 2
 ```
 
 ### 多种输入
@@ -158,7 +181,7 @@ return app.run(argc, argv);
 
 ```cpp
 auto result = app.parse(argc, argv);
-if (!result) return result.error().is_error() ? 1 : 0;
+if (!result) return result.error().is_error() ? 2 : 0;
 const cmdline::ParsedArgs& parsed = *result;
 if (parsed.has_subcommand()) {
     auto sub = parsed.subcommand();
@@ -225,18 +248,19 @@ app.subcommand("completions")
     .description("Generate shell completions")
     .option(Option("shell").takes_value().value_name("SHELL")
         .help("Target shell [possible values: bash, fish, zsh]"))
-    .action([&app](const ParsedArgs& p) {
+    .action([&app](const ParsedArgs& p) -> int {
         auto shell_opt = p.value("shell");
         if (!shell_opt) {
             std::println(std::cerr, "SHELL not provided.");
-            return;
+            return 2;
         }
         auto shell = shell_from_string(*shell_opt);
         if (!shell || !shell_supported(*shell)) {
             std::println(std::cerr, "Unsupported shell: {}", *shell_opt);
-            return;
+            return 2;
         }
         std::print("{}", app.completions(*shell));
+        return 0;
     });
 ```
 
