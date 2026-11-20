@@ -158,3 +158,25 @@ TEST(Completions, NoSubcommands) {
         EXPECT_EQ(r.find("_commands"), std::string::npos);
     }
 }
+
+// -----------------------------------------------------------------------------
+// snapshot: the command tree an importer walks
+// -----------------------------------------------------------------------------
+TEST(Snapshot, NamesEveryCommandAndOption) {
+    App app("myapp");
+    (void)app.version("1.0");
+    (void)app.option(Option("quiet").short_name('q').global());
+    (void)app.subcommand(App("cache").subcommand(App("gc").option(Option("dry-run"))));
+
+    const auto tree = snapshot(app);
+    EXPECT_EQ(tree.name, "myapp");
+    std::vector<std::string> top;
+    for (const auto& o : tree.options) top.push_back(o.long_name);
+    EXPECT_EQ(top, (std::vector<std::string>{"quiet", "help", "version"}));
+    ASSERT_EQ(tree.subcommands.size(), 1u);
+    ASSERT_EQ(tree.subcommands[0].subcommands.size(), 1u);
+    const auto& gc = tree.subcommands[0].subcommands[0];
+    EXPECT_EQ(gc.name, "gc");
+    ASSERT_FALSE(gc.options.empty());
+    EXPECT_EQ(gc.options[0].long_name, "dry-run");
+}
