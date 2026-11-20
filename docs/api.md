@@ -208,7 +208,8 @@ app.subcommand(cmdline::App("add").description("Add").arg(cmdline::Arg("x").requ
 
 ### 生成流程
 
-1. 从 `App` 构建 `completions::Command` 树（`snapshot(app)` 或自动由 `generate_completions` 调用）
+1. 从 `App` 构建 `completions::Command` 树（`snapshot(app)` 或自动由 `generate_completions` 调用）。`snapshot` 是导出的函数（自 0.0.5）：
+   补全脚本、手册页与工具对自身命令和选项的列举都由同一棵树生成
 2. `Command` 包含名称、描述、版本、`Arg`/`Option` 列表、子命令列表
 3. 选择目标 `Shell` 后调用 `generate_completions`，输出补全脚本文本
 

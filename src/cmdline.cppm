@@ -17,6 +17,12 @@ class SubcommandArgBuilder;
 class OptBuilder;
 class ArgBuilder;
 
+export class App;
+/// The command tree as declared, with the options the parse adds itself (`-h/--help`, and
+/// `--version` when a version is set): what a completion script, a manual page or a tool's
+/// listing of its own commands and options is generated from.
+export [[nodiscard]] completions::Command snapshot(const App& app);
+
 export using Argv = std::vector<std::string>;
 export using detail::Arg;
 export using detail::Option;
@@ -545,7 +551,6 @@ SubcommandBuilder AppItemBuilder<D>::subcommand(std::string_view name) { this->c
 inline OptBuilder SubcommandBuilder::option(std::string_view name) { return OptBuilder(&sub_, Option(name)); }
 inline SubcommandArgBuilder SubcommandBuilder::arg(std::string_view name) { return SubcommandArgBuilder(this, Arg(name)); }
 
-/// Rebuild the command tree for shell completions.
 completions::Command snapshot(const App& app) {
     completions::Command cmd;
     cmd.name = app.name_;
