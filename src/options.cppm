@@ -4,31 +4,81 @@ export module mcpplibs.cmdline:options;
 
 import std;
 
+namespace mcpplibs::cmdline {
+
+/// What a value names, for a shell that completes it: a file, a directory, or
+/// nothing it can list.
+export enum class ValueHint : std::uint8_t { none, file, directory };
+
+/// The candidates for a value, given the text typed of it so far: what a
+/// completion offers when the set is the program's to know (installed
+/// packages, configured targets). Called only while a completion is asked for.
+export using Candidates = std::function<std::vector<std::string>(std::string_view prefix)>;
+
+} // namespace mcpplibs::cmdline
+
 namespace mcpplibs::cmdline::detail {
 
-export struct Arg {
+// The facts a value carries for the parse and for a completion: the values it
+// may take (a closed set the parse checks, which help names and a completion
+// lists), what it names, and the program's candidates.
+struct ValueFacts {
+    std::vector<std::string> values_;
+    ValueHint hint_ = ValueHint::none;
+    Candidates complete_;
+
+    [[nodiscard]] bool admits(std::string_view value) const {
+        return values_.empty() || std::ranges::find(values_, value) != values_.end();
+    }
+    [[nodiscard]] std::string values_text() const {
+        std::string out;
+        for (const auto& v : values_) out += (out.empty() ? "" : ", ") + v;
+        return out;
+    }
+};
+
+export struct Arg : ValueFacts {
     std::string name;
     std::string help_;
     bool required_ = false;
     std::string default_val;
+    bool repeatable_ = false;
 
-    constexpr Arg(std::string_view name) : name(name) {}
+    Arg(std::string_view name) : name(name) {}
 
-    [[nodiscard]] constexpr Arg& help(std::string_view help_text) {
+    [[nodiscard]] Arg& help(std::string_view help_text) {
         help_ = help_text;
         return *this;
     }
-    [[nodiscard]] constexpr Arg& required(bool required = true) {
+    [[nodiscard]] Arg& required(bool required = true) {
         required_ = required;
         return *this;
     }
-    [[nodiscard]] constexpr Arg& default_value(std::string_view value) {
+    [[nodiscard]] Arg& default_value(std::string_view value) {
         default_val = value;
+        return *this;
+    }
+    /// The argument stands for every positional from here on (`mcpp add a b`).
+    [[nodiscard]] Arg& repeatable(bool repeatable = true) {
+        repeatable_ = repeatable;
+        return *this;
+    }
+    /// The values it may take; any other is a parse error.
+    [[nodiscard]] Arg& values(std::vector<std::string> allowed) {
+        values_ = std::move(allowed);
+        return *this;
+    }
+    [[nodiscard]] Arg& value_hint(ValueHint hint) {
+        hint_ = hint;
+        return *this;
+    }
+    [[nodiscard]] Arg& complete(Candidates candidates) {
+        complete_ = std::move(candidates);
         return *this;
     }
 };
 
-export struct Option {
+export struct Option : ValueFacts {
     char short_ = '\0';
     std::string long_name;
     std::string help_;
@@ -40,10 +90,29 @@ export struct Option {
     bool (*value_check_)(std::string_view) = nullptr;
     std::string value_kind_;  // what it takes, for that error: "a number", "an integer" …
 
-    constexpr Option(std::string_view long_opt) : long_name(long_opt) {}
-    constexpr Option(char short_char) : short_(short_char) {}
+    Option(std::string_view long_opt) : long_name(long_opt) {}
+    Option(char short_char) : short_(short_char) {}
 
-    [[nodiscard]] constexpr Option& short_name(char short_char) {
+    /// The values it takes; any other is a parse error. The option takes a value.
+    [[nodiscard]] Option& values(std::vector<std::string> allowed) {
+        values_ = std::move(allowed);
+        takes_value_ = true;
+        return *this;
+    }
+    /// What its value names (a file, a directory). The option takes a value.
+    [[nodiscard]] Option& value_hint(ValueHint hint) {
+        hint_ = hint;
+        takes_value_ = true;
+        return *this;
+    }
+    /// The program's candidates for its value. The option takes a value.
+    [[nodiscard]] Option& complete(Candidates candidates) {
+        complete_ = std::move(candidates);
+        takes_value_ = true;
+        return *this;
+    }
+
+    [[nodiscard]] Option& short_name(char short_char) {
         short_ = short_char;
         return *this;
     }
@@ -51,23 +120,23 @@ export struct Option {
         long_name = long_opt;
         return *this;
     }
-    [[nodiscard]] constexpr Option& help(std::string_view help_text) {
+    [[nodiscard]] Option& help(std::string_view help_text) {
         help_ = help_text;
         return *this;
     }
-    [[nodiscard]] constexpr Option& takes_value(bool takes = true) {
+    [[nodiscard]] Option& takes_value(bool takes = true) {
         takes_value_ = takes;
         return *this;
     }
-    [[nodiscard]] constexpr Option& multiple(bool multiple = true) {
+    [[nodiscard]] Option& multiple(bool multiple = true) {
         multiple_ = multiple;
         return *this;
     }
-    [[nodiscard]] constexpr Option& global(bool global = true) {
+    [[nodiscard]] Option& global(bool global = true) {
         global_ = global;
         return *this;
     }
-    [[nodiscard]] constexpr Option& value_name(std::string_view value_name) {
+    [[nodiscard]] Option& value_name(std::string_view value_name) {
         value_name_ = value_name;
         return *this;
     }

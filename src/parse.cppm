@@ -22,7 +22,8 @@ export struct OptionValue {
 };
 
 export struct ParseError {
-    enum Kind : std::uint8_t { help, version, error };
+    // `completion`: a completion was asked for and answered (`App::completion`).
+    enum Kind : std::uint8_t { help, version, error, completion };
     Kind kind = error;
     std::string message;
 
@@ -30,6 +31,7 @@ export struct ParseError {
 
     static ParseError make_help() { return {.kind = help}; }
     static ParseError make_version() { return {.kind = version}; }
+    static ParseError make_completion() { return {.kind = completion}; }
 
     friend std::ostream& operator<<(std::ostream& os, const ParseError& e) {
         return os << e.message;

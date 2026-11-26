@@ -3,12 +3,9 @@ export module mcpplibs.cmdline;
 import std;
 
 export import :completions;
+export import :complete;
 export import :options;
 export import :parse;
-
-export import :completions.bash;
-export import :completions.fish;
-export import :completions.zsh;
 
 namespace mcpplibs::cmdline {
 
@@ -24,6 +21,15 @@ export class App;
 export [[nodiscard]] completions::Command snapshot(const App& app);
 
 export using Argv = std::vector<std::string>;
+
+/// How `App::completion` offers completions: `entry` is the hidden command a
+/// shell's adapter calls with the words to complete; `command`, when not
+/// empty, a command that prints the adapter for a shell (`myapp completions
+/// bash`), listed with the others.
+export struct CompletionOptions {
+    std::string command = "completions";
+    std::string entry = "__complete";
+};
 export using detail::Arg;
 export using detail::Option;
 export using detail::OptionValue;
@@ -42,7 +48,8 @@ public:
     App(App&&) noexcept = default;
     App& operator=(App&&) noexcept = default;
     App(const App& other) : name_(other.name_), version_(other.version_), description_(other.description_), author_(other.author_),
-        args_(other.args_), options_(other.options_), subcommands_(other.subcommands_), action_(other.action_) {}
+        args_(other.args_), options_(other.options_), subcommands_(other.subcommands_), action_(other.action_),
+        hidden_(other.hidden_), completion_(other.completion_) {}
     App& operator=(const App& other) {
         if (this == &other) return *this;
         name_ = other.name_;
@@ -53,6 +60,27 @@ public:
         options_ = other.options_;
         subcommands_ = other.subcommands_;
         action_ = other.action_;
+        hidden_ = other.hidden_;
+        completion_ = other.completion_;
+        return *this;
+    }
+
+    /// The command is not listed: not in help, not among completions. It
+    /// parses and runs as any other (an internal command, a deprecated
+    /// spelling).
+    [[nodiscard]] App& hidden(bool hidden = true) {
+        hidden_ = hidden;
+        return *this;
+    }
+    /// Completion, built in (off unless asked for). A shell's adapter calls the
+    /// program with `options.entry` and the words before the cursor; the
+    /// program answers from its command tree, by the rules its parse reads it
+    /// by, and with the candidates its options and arguments state
+    /// (`values`, `value_hint`, `complete`). `options.command`, when not
+    /// empty, prints the adapter for a shell. Both are answered where `--help`
+    /// is, and the parse returns `ParseError` of kind `completion`.
+    [[nodiscard]] App& completion(CompletionOptions options = {}) {
+        completion_ = std::move(options);
         return *this;
     }
 
@@ -176,9 +204,17 @@ public:
                 std::println("    {} {}", opt_str, opt.help_);
             }
         }
-        if (!subcommands_.empty()) {
+        const bool listsCompletion = completion_ && !completion_->command.empty()
+                                     && (program_name.empty() || program_name == name_);
+        if (std::ranges::any_of(subcommands_, [](const App& s) { return !s.hidden_; }) || listsCompletion) {
             std::println("\nSUBCOMMANDS:");
+            if (listsCompletion) {
+                std::string padded(completion_->command);
+                while (padded.size() < 12) padded += ' ';
+                std::println("    {} The completion script for a shell: bash, zsh, fish, powershell", padded);
+            }
             for (const auto& sub : subcommands_) {
+                if (sub.hidden_) continue;
                 std::string padded(sub.name_);
                 while (padded.size() < 12) padded += ' ';
                 std::println("    {} {}", padded, sub.description_.empty() ? "" : sub.description_);
@@ -194,6 +230,22 @@ private:
     using OptRef = std::optional<std::reference_wrapper<const Option>>;
 
     [[nodiscard]] ParseResult parse_tokens(std::span<const std::string_view> tokens) const {
+        if (completion_ && !tokens.empty()) {
+            if (tokens[0] == completion_->entry) {
+                std::vector<std::string> words(tokens.begin() + 1, tokens.end());
+                std::print("{}", completions::render(completions::complete(snapshot(*this), words)));
+                return std::unexpected(ParseError::make_completion());
+            }
+            if (!completion_->command.empty() && tokens[0] == completion_->command
+                && (tokens.size() < 2 || tokens[1] != "--help")) {
+                const auto shell = tokens.size() > 1 ? shell_from_string(tokens[1]) : std::nullopt;
+                if (!shell)
+                    return std::unexpected(ParseError{.message = std::format(
+                        "{} names a shell: bash, zsh, fish, powershell", completion_->command)});
+                std::print("{}", completions::adapter(*shell, name_, completion_->entry));
+                return std::unexpected(ParseError::make_completion());
+            }
+        }
         global_keys_t global_keys;
         global_opts_t global_opts;
         std::vector<Option> root_globals;
@@ -324,6 +376,8 @@ private:
                         return std::unexpected(ParseError{.message = std::format("option --{} requires a value", key)});
                     if (found.value_check_ && !found.value_check_(val))
                         return std::unexpected(ParseError{.message = std::format("option --{} takes {}, not `{}`", key, found.value_kind_, val)});
+                    if (!found.admits(val))
+                        return std::unexpected(ParseError{.message = std::format("option --{} takes one of {}, not `{}`", key, found.values_text(), val)});
                     apply_option(found, key_str, std::move(val), false);
                 } else {
                     apply_option(found, key_str, "", true);
@@ -342,6 +396,8 @@ private:
                     std::string val(tokens[++i]);
                     if (found.value_check_ && !found.value_check_(val))
                         return std::unexpected(ParseError{.message = std::format("option -{} takes {}, not `{}`", short_char, found.value_kind_, val)});
+                    if (!found.admits(val))
+                        return std::unexpected(ParseError{.message = std::format("option -{} takes one of {}, not `{}`", short_char, found.values_text(), val)});
                     apply_option(found, key_str, std::move(val), false);
                 } else {
                     apply_option(found, key_str, "", true);
@@ -357,6 +413,13 @@ private:
     }
 
     ParseResult finish_parse(ParsedArgs parsed) const {
+        for (std::size_t idx = 0; idx < parsed.positionals.size(); ++idx) {
+            const Arg* argument = idx < args_.size() ? &args_[idx]
+                                : (!args_.empty() && args_.back().repeatable_ ? &args_.back() : nullptr);
+            if (argument && !argument->admits(parsed.positionals[idx]))
+                return std::unexpected(ParseError{.message = std::format(
+                    "argument '{}' takes one of {}, not `{}`", argument->name, argument->values_text(), parsed.positionals[idx])});
+        }
         for (std::size_t idx = 0; idx < args_.size(); ++idx) {
             const auto& argument = args_[idx];
             if (idx < parsed.positionals.size()) continue;
@@ -387,6 +450,8 @@ private:
     std::vector<Option> options_;
     std::vector<App> subcommands_;
     std::function<int(const ParsedArgs&)> action_;
+    bool hidden_ = false;
+    std::optional<CompletionOptions> completion_;
 };
 
 // CRTP base: shared transition methods and parent/commit management for OptBuilder & ArgBuilder.
@@ -444,6 +509,9 @@ public:
     OptBuilder& value_name(std::string_view v) { (void)option_.value_name(v); return *this; }
     OptBuilder& multiple(bool m = true)        { (void)option_.multiple(m); return *this; }
     OptBuilder& global(bool g = true)          { (void)option_.global(g); return *this; }
+    OptBuilder& values(std::vector<std::string> v) { (void)option_.values(std::move(v)); return *this; }
+    OptBuilder& value_hint(ValueHint h)        { (void)option_.value_hint(h); return *this; }
+    OptBuilder& complete(Candidates c)         { (void)option_.complete(std::move(c)); return *this; }
 
 private:
     void do_commit() { parent_->options_.push_back(std::move(option_)); }
@@ -464,6 +532,10 @@ public:
     ArgBuilder& help(std::string_view h)          { (void)arg_.help(h); return *this; }
     ArgBuilder& required(bool r = true)           { (void)arg_.required(r); return *this; }
     ArgBuilder& default_value(std::string_view v) { (void)arg_.default_value(v); return *this; }
+    ArgBuilder& repeatable(bool r = true)         { (void)arg_.repeatable(r); return *this; }
+    ArgBuilder& values(std::vector<std::string> v) { (void)arg_.values(std::move(v)); return *this; }
+    ArgBuilder& value_hint(ValueHint h)           { (void)arg_.value_hint(h); return *this; }
+    ArgBuilder& complete(Candidates c)            { (void)arg_.complete(std::move(c)); return *this; }
 
 private:
     void do_commit() { parent_->args_.push_back(std::move(arg_)); }
@@ -487,6 +559,7 @@ public:
     SubcommandBuilder& version(std::string_view v)     { (void)sub_.version(v); return *this; }
     SubcommandBuilder& author(std::string_view a)      { (void)sub_.author(a); return *this; }
     SubcommandBuilder& description(std::string_view d) { (void)sub_.description(d); return *this; }
+    SubcommandBuilder& hidden(bool h = true)           { (void)sub_.hidden(h); return *this; }
     SubcommandBuilder& arg(Arg argument)               { (void)sub_.arg(std::move(argument)); return *this; }
     SubcommandArgBuilder arg(std::string_view name);
     SubcommandBuilder& option(Option opt)              { (void)sub_.option(std::move(opt)); return *this; }
@@ -522,6 +595,10 @@ public:
     SubcommandArgBuilder& required(bool r = true)           { (void)arg_.required(r); return *this; }
     SubcommandArgBuilder& help(std::string_view h)          { (void)arg_.help(h); return *this; }
     SubcommandArgBuilder& default_value(std::string_view v) { (void)arg_.default_value(v); return *this; }
+    SubcommandArgBuilder& repeatable(bool r = true)         { (void)arg_.repeatable(r); return *this; }
+    SubcommandArgBuilder& values(std::vector<std::string> v) { (void)arg_.values(std::move(v)); return *this; }
+    SubcommandArgBuilder& value_hint(ValueHint h)           { (void)arg_.value_hint(h); return *this; }
+    SubcommandArgBuilder& complete(Candidates c)            { (void)arg_.complete(std::move(c)); return *this; }
     SubcommandArgBuilder arg(std::string_view name)         { commit(); return sb_->arg(name); }
     template <typename Fn>
     App& action(Fn&& fn) { commit(); return sb_->action(std::forward<Fn>(fn)); }
@@ -562,22 +639,33 @@ completions::Command snapshot(const App& app) {
 
     // Special cases in `App::parse_impl`:
     //
-    // `-h/--help` is always available.
-    cmd.options.emplace_back(detail::Option("help").short_name('h').help("Print help").global());
-    // `--version` is available when app has a non-empty version.
-    if (!cmd.version.empty()) cmd.options.emplace_back(detail::Option("version").help("Print version").global());
+    // `-h/--help` is every command's own (each node of the snapshot has it).
+    cmd.options.emplace_back(detail::Option("help").short_name('h').help("Print help"));
+    // `--version` is the command's that has a version: the parse answers it
+    // there and nowhere below.
+    if (!cmd.version.empty()) cmd.options.emplace_back(detail::Option("version").help("Print version"));
 
-    for (const auto& sub : app.subcommands_) cmd.subcommands.emplace_back(snapshot(sub));
+    for (const auto& sub : app.subcommands_)
+        if (!sub.hidden_) cmd.subcommands.emplace_back(snapshot(sub));
+    // The command that prints an adapter, as `completion` added it.
+    if (app.completion_ && !app.completion_->command.empty()) {
+        completions::Command printer;
+        printer.name = app.completion_->command;
+        printer.description = "The completion script for a shell";
+        printer.args.push_back(detail::Arg("shell").values({"bash", "zsh", "fish", "powershell"}));
+        cmd.subcommands.push_back(std::move(printer));
+    }
 
     return cmd;
 }
 
+// THE ADAPTER FOR A SHELL (unchanged signatures since 0.0.4). The script a
+// shell reads is the few lines that ask the program (`completions::adapter`),
+// not the program's command tree written out: the tree is the program's, and
+// it answers for it (`App::completion`). The adapter calls the default entry,
+// `__complete`, for a tree given as a `Command`.
 export void generate_completions(const completions::Command& cmd, Shell shell, std::ostream& out) {
-    switch (shell) {
-        case Shell::bash: completions::bash::generate(cmd, out); return;
-        case Shell::fish: completions::fish::generate(cmd, out); return;
-        case Shell::zsh:  completions::zsh::generate(cmd, out); return;
-    }
+    out << completions::adapter(shell, cmd.name, CompletionOptions{}.entry);
 }
 
 export std::string generate_completions(const completions::Command& cmd, Shell shell) {
@@ -587,17 +675,15 @@ export std::string generate_completions(const completions::Command& cmd, Shell s
 }
 
 export void generate_completions(const App& app, Shell shell, std::ostream& out) {
-    auto cmd = snapshot(app);
-    generate_completions(cmd, shell, out);
+    out << app.completions(shell);
 }
 
 export std::string generate_completions(const App& app, Shell shell) {
-    auto cmd = snapshot(app);
-    return generate_completions(cmd, shell);
+    return app.completions(shell);
 }
 
 std::string App::completions(Shell shell) const {
-    return generate_completions(*this, shell);
+    return completions::adapter(shell, name_, completion_ ? completion_->entry : CompletionOptions{}.entry);
 }
 
 } // namespace mcpplibs::cmdline

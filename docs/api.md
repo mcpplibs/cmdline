@@ -11,10 +11,10 @@
 | `OptionValue` | 单个选项取值（flag 计数 + values） |
 | `ParseError` | 解析错误（kind + message） |
 | `Argv` | `std::vector<std::string>` 的别名，用于 `parse_from` |
-| `Shell` | 目标 shell 枚举：`bash` / `fish` / `zsh` |
-| `Command` | 命令树快照，用于生成补全脚本 |
+| `Shell` | 目标 shell 枚举：`bash` / `fish` / `zsh` / `powershell` |
+| `Command` | 命令树快照，补全引擎读取它 |
 
-解析返回 `ParseResult`，即 `std::expected<ParsedArgs, ParseError>`。`-h`/`--help`、`--version` 时，`ParseError::kind` 分别为 `help` / `version`，不携带 `message`，通过 `is_error()` 可区分真实错误。
+解析返回 `ParseResult`，即 `std::expected<ParsedArgs, ParseError>`。`-h`/`--help`、`--version` 时，`ParseError::kind` 分别为 `help` / `version`（补全见“Shell 补全”，为 `completion`），不携带 `message`，通过 `is_error()` 可区分真实错误。
 
 ---
 
@@ -36,9 +36,11 @@
 
 ## Arg / Option
 
-**Arg**：`.help(s)` `.required(bool)` `.default_value(s)`
+**Arg**：`.help(s)` `.required(bool)` `.default_value(s)` `.repeatable(bool)` `.values({...})` `.value_hint(h)` `.complete(fn)`
 
-**Option**：`.short_name(c)` `.long_opt(s)` `.help(s)` `.takes_value(bool)` `.value_name(s)` `.multiple(bool)` `.global(bool)`
+**Option**：`.short_name(c)` `.long_opt(s)` `.help(s)` `.takes_value(bool)` `.value_name(s)` `.multiple(bool)` `.global(bool)` `.values({...})` `.value_hint(h)` `.complete(fn)`
+
+**App**（子命令）：`.hidden(bool)`；根命令：`.completion(options)`（见“Shell 补全”）
 
 ---
 
@@ -48,13 +50,13 @@
 |------|------|
 | `shell_from_string(sv)` | 字符串 → `std::optional<Shell>`（如 `"fish"` → `Shell::fish`） |
 | `to_string(shell)` | `Shell` → `std::string_view` |
-| `shell_supported(shell)` | 该 shell 补全是否已实现（fish / bash / zsh） |
+| `shell_supported(shell)` | 该 shell 补全是否已实现（bash / zsh / fish / powershell） |
 
 ## ParseError
 
 | 成员 | 说明 |
 |------|------|
-| `kind` | 枚举：`help` / `version` / `error` |
+| `kind` | 枚举：`help` / `version` / `completion` / `error` |
 | `message` | 错误文本（仅 `kind == error` 时有内容） |
 | `.is_error()` | `kind == error` 时返回 `true` |
 
@@ -206,63 +208,43 @@ app.subcommand(cmdline::App("add").description("Add").arg(cmdline::Arg("x").requ
 
 ## Shell 补全
 
-### 生成流程
-
-1. 从 `App` 构建 `completions::Command` 树（`snapshot(app)` 或自动由 `generate_completions` 调用）。`snapshot` 是导出的函数（自 0.0.5）：
-   补全脚本、手册页与工具对自身命令和选项的列举都由同一棵树生成
-2. `Command` 包含名称、描述、版本、`Arg`/`Option` 列表、子命令列表
-3. 选择目标 `Shell` 后调用 `generate_completions`，输出补全脚本文本
-
-### completions::Command
-
-| 成员 | 说明 |
-|------|------|
-| `name` | 命令名 |
-| `description` | 描述文本 |
-| `version` | 版本号 |
-| `args` / `options` / `subcommands` | `vector<Arg>` / `vector<Option>` / `vector<Command>` |
-| `.has_positionals()` | 是否有位置参数 |
-| `.has_subcommands()` | 是否有子命令 |
-
-> `snapshot()` 构建的 `Command` 会自动包含 `-h`/`--help` 和 `--version` 选项（与 `App::parse_impl` 行为一致）。
-
-### 生成函数
-
-| 重载 | 说明 |
-|------|------|
-| `generate_completions(cmd, shell)` | `Command` → `std::string` |
-| `generate_completions(cmd, shell, out)` | `Command` → `std::ostream&` |
-| `generate_completions(app, shell)` | `App` → `std::string`（内部调用 snapshot） |
-| `generate_completions(app, shell, out)` | `App` → `std::ostream&` |
-
-### App::completions
+### 一次调用开启
 
 ```cpp
-// App 上的便捷方法，等价于 generate_completions(*this, shell)
-std::string completions(Shell shell) const;
+(void)app.completion();                                   // 缺省：`completions <shell>` 与隐藏入口 `__complete`
+(void)app.completion({.command = "", .entry = "__complete"}); // 不加可见命令，脚本由程序自己写出
 ```
 
-### 示例：添加 completions 子命令
+开启之后：
 
-```cpp
-app.subcommand("completions")
-    .description("Generate shell completions")
-    .option(Option("shell").takes_value().value_name("SHELL")
-        .help("Target shell [possible values: bash, fish, zsh]"))
-    .action([&app](const ParsedArgs& p) -> int {
-        auto shell_opt = p.value("shell");
-        if (!shell_opt) {
-            std::println(std::cerr, "SHELL not provided.");
-            return 2;
-        }
-        auto shell = shell_from_string(*shell_opt);
-        if (!shell || !shell_supported(*shell)) {
-            std::println(std::cerr, "Unsupported shell: {}", *shell_opt);
-            return 2;
-        }
-        std::print("{}", app.completions(*shell));
-        return 0;
-    });
-```
+- `myapp completions bash`（`zsh`、`fish`、`powershell`）打印该 shell 的适配脚本。脚本只有几行，内容是把光标前的词交给
+  `myapp __complete …` 并列出回答，不含命令树；程序新增命令之后，用户无需重新安装脚本。
+- `myapp __complete <words…>` 是隐藏入口：以命令树、解析所用的同一套词法规则（`completions::classify`）回答最后一个词
+  可以补成什么。回答是文本，每行一个候选（`值<TAB>说明`），最后一行 `:<指令>`：`:0` 无附加，`:1` 由 shell 补文件，
+  `:2` 由 shell 补目录。
+- 两者都在 `--help` 的位置处理，解析返回 `ParseError`，其 `kind` 为 `completion`，`is_error()` 为 `false`。
+- 不调用 `completion()` 时，行为与此前一致。
 
-> 完整可运行示例见 `examples/completions/`。
+### 补全读取的事实
+
+| 位置 | 方法 | 含义 |
+|------|------|------|
+| `Option`、`Arg` | `.values({...})` | 可选值的封闭集合：解析校验它，帮助与补全列出它；`Option` 由此带值 |
+| `Option`、`Arg` | `.value_hint(ValueHint::file / directory)` | 值是文件或目录，由 shell 补全 |
+| `Option`、`Arg` | `.complete(fn)` | 候选回调 `std::vector<std::string>(std::string_view prefix)`，只在补全时调用 |
+| `Arg` | `.repeatable()` | 该位置参数代表其后的每个位置参数 |
+| `App`（子命令） | `.hidden()` | 不出现在帮助与补全中，照常解析与执行 |
+
+### 引擎与适配器
+
+| 函数 | 说明 |
+|------|------|
+| `completions::complete(cmd, words)` | 纯函数：命令树与光标前的词 → `Answer`（候选与指令） |
+| `completions::render(answer)` | `Answer` → 上述文本协议 |
+| `completions::adapter(shell, program, entry)` | 某个 shell 的适配脚本 |
+| `completions::classify(word, isSubcommand)` | 一个词对一个命令的含义：`--`、长选项（含 `--k=v`）、短选项、子命令、位置参数；解析与补全共用 |
+| `snapshot(app)` | 命令树快照（自 0.0.5）：每个命令含自己的 `-h`/`--help`，有版本的命令含 `--version`；隐藏命令不在其中 |
+
+`generate_completions(cmd|app, shell[, out])` 与 `App::completions(shell)` 的签名不变，自 0.0.6 起输出适配脚本，而不是
+写出整棵命令树的脚本。
+

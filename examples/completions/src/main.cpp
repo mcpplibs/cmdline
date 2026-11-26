@@ -77,25 +77,10 @@ int main(int argc, char* argv[]) {
             .action(dummy_action);
     app.subcommand(create_subos());
 
-    // Completions
-    app.subcommand("completions")
-        .description("Generate shell completions")
-        .option(Option("shell").takes_value().value_name("SHELL").help("Target shell [possible values: bash, fish, zsh]"))
-        .action([&app](const ParsedArgs& p) {
-            auto shell_opt = p.value("shell");
-            if (!shell_opt) {
-                std::println(std::cerr, "SHELL not provided.");
-                return;
-            }
-
-            auto shell = cmdline::shell_from_string(*shell_opt);
-            if (!shell || !cmdline::shell_supported(*shell)) {
-                std::println(std::cerr, "Unsupported shell: {}", *shell_opt);
-                return;
-            }
-
-            std::print("{}", app.completions(*shell));
-        });
+    // Completions: one call. `completions <shell>` prints the adapter a shell
+    // sources; the adapter asks the program (`__complete`), which answers from
+    // this tree.
+    (void)app.completion();
 
     return app.run(argc, argv);
 }

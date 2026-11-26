@@ -11,6 +11,7 @@ export enum class Shell {
     bash,
     fish,
     zsh,
+    powershell,
 };
 
 struct ShellEntry {
@@ -18,10 +19,11 @@ struct ShellEntry {
     std::string_view name;
 };
 
-constexpr std::array<ShellEntry, 3> shell_entries {{
+constexpr std::array<ShellEntry, 4> shell_entries {{
     {Shell::bash, "bash"},
     {Shell::fish, "fish"},
     {Shell::zsh,  "zsh"},
+    {Shell::powershell, "powershell"},
 }};
 
 export [[nodiscard]] std::optional<Shell> shell_from_string(std::string_view sv) {
@@ -43,6 +45,7 @@ export [[nodiscard]] bool shell_supported(Shell shell) {
         case Shell::fish: return true;
         case Shell::bash: return true;
         case Shell::zsh:  return true;
+        case Shell::powershell: return true;
     }
     return false;
 }
