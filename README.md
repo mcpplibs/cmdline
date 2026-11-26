@@ -20,6 +20,7 @@
 
 - **多种解析模式** — 支持 `argc/argv`、`cmdline::Argv`（即 `vector<string>`）或原始 `string_view`
 
+- **Shell 补全** — `app.completion()` 一次调用开启；程序以自己的命令树回答（`__complete`），bash、zsh、fish、PowerShell 的适配脚本只有几行，不含命令树
 - **数值选项** — `value_type<T>()` 声明选项取 `T` 类型的数字，解析时用 `std::from_chars` 校验，不合法就是解析错误；`value_as<T>(name)` 读回
 
 ## 快速开始
